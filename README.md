@@ -291,16 +291,7 @@ Body:
 Create a `.env` file in the AstroKites directory:
 
 ```env
-# API Configuration
-VITE_API_BASE_URL=http://localhost:8000
-VITE_NASA_POWER_API_URL=https://power.larc.nasa.gov/api/temporal/
-
-# Map Configuration
-VITE_MAPBOX_TOKEN=your_mapbox_token_here
-VITE_OPENSTREETMAP_TILE_URL=https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
-
-# Optional: API Keys
-VITE_NASA_POWER_TOKEN=your_nasa_token_here
+VITE_TOKEN=your_nasa_token_here
 ```
 
 ---
