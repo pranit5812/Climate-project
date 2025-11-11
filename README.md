@@ -365,13 +365,7 @@ Contributions are welcome! Please follow these steps:
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-## 👥 Authors
-
-- **Your Name** - Initial work and development
+This project is licensed under the MIT License - see the LICENSE file for details
 
 ---
 
@@ -387,9 +381,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 📧 Contact
 
 For questions, suggestions, or issues:
-- **Email**: your.email@example.com
-- **GitHub**: [Your GitHub Profile](https://github.com/yourusername)
-- **Project Link**: [AstroKites Repository](https://github.com/yourusername/astrokites)
+- **Email**: harshsuthar608@gmail.com.com
 
 ---
 
