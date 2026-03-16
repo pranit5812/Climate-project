@@ -382,7 +382,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 📧 Contact
 
 For questions, suggestions, or issues:
-- **Email**: harshsuthar608@gmail.com.com
+- **Email**: harshparmar1617@gmail.com
 
 ---
 
