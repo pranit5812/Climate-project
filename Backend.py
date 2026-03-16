@@ -4,8 +4,45 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from fastapi.middleware.cors import CORSMiddleware
-import urllib.request, urllib.error, urllib.parse, json, csv, datetime, os, math
+import urllib.request, urllib.error, urllib.parse, json, csv, datetime, os, math, base64
 import numpy as np
+
+
+# ---------------- .env loader ----------------
+def _load_env_from_dotenv():
+    """
+    Lightweight .env loader for this backend only.
+    Reads key=value lines from Astrovantage_17.6/.env and sets os.environ,
+    so we can keep secrets (Twilio, etc.) there.
+    """
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        env_path = os.path.join(base_dir, ".env")
+        if not os.path.exists(env_path):
+            return
+        with open(env_path, "r", encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                # Strip optional quotes
+                if ((value.startswith('"') and value.endswith('"')) or
+                        (value.startswith("'") and value.endswith("'"))):
+                    value = value[1:-1]
+                key = key.strip("\ufeff")  # strip BOM if present
+                os.environ[key] = value
+    except Exception:
+        # Fail silently; we don't want .env issues to crash the app
+        pass
+
+
+# Load .env once at import time
+_load_env_from_dotenv()
 
 
 # ---------------- Utilities ----------------
@@ -278,6 +315,89 @@ def series_to_json(dates_vals_tuple):
     return {'dates': [dt.isoformat() for dt in d], 'values': [None if (isinstance(x, float) and math.isnan(x)) else float(x) for x in v.tolist()]}
 
 
+def _fetch_openweather_daily(lat, lon, api_key, ndays=7, timeout=20):
+    """
+    Fetch 7-day daily forecast from OpenWeather One Call (metric units).
+    Returns list of daily entries or raises on error.
+    """
+    if not api_key:
+        raise ValueError("Missing OpenWeather API key")
+    base = "https://api.openweathermap.org/data/3.0/onecall"
+    qs = urllib.parse.urlencode({
+        "lat": f"{lat:.6f}",
+        "lon": f"{lon:.6f}",
+        "exclude": "current,minutely,hourly,alerts",
+        "units": "metric",
+        "appid": api_key,
+    })
+    url = f"{base}?{qs}"
+    raw, _code = _download_url_bytes(url, timeout=timeout)
+    j = json.loads(raw.decode("utf-8"))
+    daily = j.get("daily", [])
+    return daily[:ndays]
+
+
+def _twilio_send_sms(to_number, body):
+    """
+    Send SMS using Twilio REST API.
+    Reads TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER from environment.
+    Returns dict with sent: bool and optional error.
+    """
+    sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    token = os.environ.get("TWILIO_AUTH_TOKEN")
+    from_number = os.environ.get("TWILIO_FROM_NUMBER")
+    messaging_service_sid = os.environ.get("TWILIO_MESSAGING_SERVICE_SID")
+    if not (sid and token and (from_number or messaging_service_sid)):
+        return {"sent": False, "error": "Missing Twilio configuration in environment."}
+    if not to_number:
+        return {"sent": False, "error": "No destination phone number provided."}
+    # Basic normalization: if user typed a raw 10- or 11-digit Indian mobile, add +91 prefix
+    raw = str(to_number).strip()
+    if raw.startswith("+"):
+        norm_to = raw
+    else:
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        if len(digits) == 10:
+            # Assume Indian mobile without country code
+            norm_to = "+91" + digits
+        elif len(digits) == 11 and digits.startswith("0"):
+            # Strip leading 0 and add +91
+            norm_to = "+91" + digits[1:]
+        else:
+            # Fallback: let Twilio validate whatever was provided
+            norm_to = raw
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+    payload_dict = {
+        "To": norm_to,
+        "Body": body,
+    }
+    # Prefer Messaging Service SID if configured, otherwise use From number
+    if messaging_service_sid:
+        payload_dict["MessagingServiceSid"] = messaging_service_sid
+    else:
+        payload_dict["From"] = from_number
+    payload = urllib.parse.urlencode(payload_dict).encode("utf-8")
+    req = urllib.request.Request(url, data=payload)
+    auth = base64.b64encode(f"{sid}:{token}".encode("utf-8")).decode("ascii")
+    req.add_header("Authorization", f"Basic {auth}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            _ = resp.read()
+        return {"sent": True}
+    except urllib.error.HTTPError as e:
+        # Include Twilio's response body to help debug 400/401/etc.
+        try:
+            err_body = e.read().decode("utf-8", errors="ignore")
+        except Exception:
+            err_body = ""
+        return {
+            "sent": False,
+            "error": f"HTTPError {e.code} {e.reason}: {err_body}",
+        }
+    except Exception as e:
+        return {"sent": False, "error": str(e)}
+
+
 
 # ---------------- FastAPI app & models ----------------
 app = FastAPI(title="NASA POWER Backend API (single-file)")
@@ -332,6 +452,26 @@ class CheckDateRequest(BaseModel):
     thresholds: Optional[Dict[str, float]] = None
     token: Optional[str] = None
     timeout: Optional[int] = 30
+
+
+class StateLocation(BaseModel):
+    name: str
+    lat: float
+    lon: float
+
+
+class StateSevenDayForecastRequest(BaseModel):
+    states: List[StateLocation]
+    phone: Optional[str] = None
+    send_sms: bool = False
+    hot_threshold_c: float = 38.0
+    heavy_rain_threshold_mm: float = 50.0
+    openweather_api_key: Optional[str] = None
+
+
+class SmsRequest(BaseModel):
+    phone: str
+    body: str
 
 
 @app.post("/power-data")
@@ -534,6 +674,153 @@ def check_date(req: CheckDateRequest):
         raise HTTPException(status_code=500, detail=f"Failed to fetch historical data: {e}")
     summary, details = classify_conditions_for_date_from_hist(hist, req.lon, req.lat, dt, window=req.window or 7, thresholds=req.thresholds)
     return {'summary': summary, 'details': details}
+
+
+@app.post("/state-7day-forecast")
+def state_seven_day_forecast(req: StateSevenDayForecastRequest):
+    """
+    Real-time 7-day forecast for multiple states using OpenWeather,
+    plus optional SMS alerts for heavy rainfall / heat.
+    """
+    if not req.states:
+        raise HTTPException(status_code=400, detail="No states provided.")
+    api_key = req.openweather_api_key or os.environ.get("OPENWEATHER_API_KEY")
+    results = []
+    hottest = None
+    rainiest = None
+    for st in req.states:
+        daily = None
+        if api_key:
+            try:
+                daily = _fetch_openweather_daily(st.lat, st.lon, api_key, ndays=7)
+            except Exception:
+                daily = None
+        # If OpenWeather not configured or failed, fall back to NASA POWER
+        if daily is None:
+            try:
+                today = datetime.date.today()
+                hist_start = (today - datetime.timedelta(days=3650)).strftime("%Y%m%d")  # last ~10 years
+                hist_end = (today - datetime.timedelta(days=1)).strftime("%Y%m%d")
+                params = ["T2M", "PRECTOT"]
+                hist = fetch_power_json_with_fallback_and_key_mapping(
+                    st.lat, st.lon, params, hist_start, hist_end, token=None, timeout=60
+                )
+                start_date = today + datetime.timedelta(days=1)
+                # Temperature forecast
+                td = hist.get("T2M", (None, None))
+                temp_daily = None
+                if td[0] is not None:
+                    df_t = compute_daily_forecast_from_hist(td[0], td[1], start_date, 7, window=7, threshold=1.0)
+                    temp_daily = df_t
+                # Precipitation forecast
+                pd = hist.get("PRECTOT", (None, None))
+                precip_daily = None
+                if pd[0] is not None:
+                    df_p = compute_daily_forecast_from_hist(pd[0], pd[1], start_date, 7, window=7, threshold=1.0)
+                    precip_daily = df_p
+                # Build "daily" list similar to OpenWeather shape
+                daily = []
+                for i in range(7):
+                    date_obj = start_date + datetime.timedelta(days=i)
+                    entry = {"dt": int(datetime.datetime.combine(date_obj, datetime.time.min).timestamp())}
+                    if temp_daily is not None:
+                        tval = temp_daily["mean"][i]
+                        entry["temp"] = {"day": None if math.isnan(tval) else float(tval)}
+                    if precip_daily is not None:
+                        pval = precip_daily["mean"][i]
+                        precip = 0.0 if math.isnan(pval) else float(pval)
+                        entry["rain"] = precip
+                    daily.append(entry)
+            except Exception:
+                daily = []
+        max_temp = None
+        max_daily_rain = 0.0
+        total_rain = 0.0
+        days = []
+        for d in daily:
+            ts = d.get("dt")
+            date_obj = datetime.date.fromtimestamp(ts) if ts is not None else None
+            date_iso = date_obj.isoformat() if date_obj else None
+            temp_day = None
+            t_obj = d.get("temp") or {}
+            if isinstance(t_obj, dict):
+                temp_day = t_obj.get("day")
+            else:
+                temp_day = d.get("temp")
+            rain_mm = float(d.get("rain", 0.0) or 0.0)
+            snow_mm = float(d.get("snow", 0.0) or 0.0)
+            precip = rain_mm + snow_mm
+            if temp_day is not None:
+                max_temp = temp_day if max_temp is None else max(max_temp, temp_day)
+            max_daily_rain = max(max_daily_rain, precip)
+            total_rain += precip
+            days.append({
+                "date": date_iso,
+                "temp_c": temp_day,
+                "precip_mm": precip,
+                "rain_mm": rain_mm,
+                "snow_mm": snow_mm,
+            })
+        has_heat = (max_temp is not None) and (max_temp >= req.hot_threshold_c)
+        has_heavy_rain = max_daily_rain >= req.heavy_rain_threshold_mm
+        sms_text = None
+        if has_heat or has_heavy_rain:
+            parts = [f"WEATHER ALERT (next 7 days) for {st.name}:"]
+            if has_heavy_rain:
+                parts.append(f"Heavy rainfall up to ~{max_daily_rain:.0f} mm/day.")
+            if has_heat:
+                parts.append(f"High temperature up to ~{max_temp:.0f} °C.")
+            parts.append("Please prepare and take necessary precautions.")
+            sms_text = " ".join(parts)
+        entry = {
+            "state": st.name,
+            "lat": st.lat,
+            "lon": st.lon,
+            "max_temp_c": max_temp,
+            "max_daily_precip_mm": max_daily_rain,
+            "total_precip_mm": total_rain,
+            "hot_alert": has_heat,
+            "heavy_rain_alert": has_heavy_rain,
+            "days": days,
+            "sms_text": sms_text,
+        }
+        results.append(entry)
+        if max_temp is not None:
+            if hottest is None or max_temp > hottest["max_temp_c"]:
+                hottest = entry
+        if max_daily_rain is not None:
+            if rainiest is None or max_daily_rain > rainiest["max_daily_precip_mm"]:
+                rainiest = entry
+    sms_status = None
+    if req.send_sms and req.phone:
+        sms_status = []
+        for r in results:
+            if not r.get("sms_text"):
+                continue
+            status = _twilio_send_sms(req.phone, r["sms_text"])
+            sms_status.append({
+                "state": r["state"],
+                "sent": status.get("sent", False),
+                "error": status.get("error"),
+            })
+    return {
+        "states": results,
+        "hottest": hottest,
+        "rainiest": rainiest,
+        "sms_status": sms_status,
+    }
+
+
+@app.post("/send-sms")
+def send_sms(req: SmsRequest):
+    """
+    Lightweight endpoint to send a single SMS with the given body.
+    Uses the same Twilio configuration as state-7day-forecast.
+    """
+    status = _twilio_send_sms(req.phone, req.body)
+    if not status.get("sent", False):
+        raise HTTPException(status_code=500, detail=status.get("error", "Failed to send SMS"))
+    return {"sent": True}
 
 
 @app.get("/")

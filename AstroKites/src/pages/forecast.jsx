@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import "./forecast.css";
-import { postPowerData } from "../api/axios";
+import { postPowerData, postStateSevenDayForecast, postSendSms } from "../api/axios";
 
 // --- CONFIG ---
 const PARAMETERS = ["T2M", "PRECTOT", "WS2M"]; // Temperature (°C), Precipitation (mm/day), Wind speed (m/s)
@@ -563,6 +563,8 @@ const ForecastSimplified = () => {
   const [selectedCountry, setSelectedCountry] = useState(COUNTRIES_DATA[0]);
   const [selectedState, setSelectedState] = useState(selectedCountry.states[0]);
   const [selectedCity, setSelectedCity] = useState(selectedState.cities[0]);
+  const [allStatesSummary, setAllStatesSummary] = useState(null);
+  const [analyzingAllStates, setAnalyzingAllStates] = useState(false);
   
   // State for date range
   const [endDate, setEndDate] = useState(() => {
@@ -626,6 +628,14 @@ const ForecastSimplified = () => {
   const [forecastData, setForecastData] = useState({ daily: [], monthly: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [alertMessage, setAlertMessage] = useState("");
+  const [governmentEmail, setGovernmentEmail] = useState("");
+  const [smsMessage, setSmsMessage] = useState("");
+  const [smsPhone, setSmsPhone] = useState("");
+  const [alertSmsPhone, setAlertSmsPhone] = useState("");
+  const [sendingSingleSms, setSendingSingleSms] = useState(false);
+  const [next7Summary, setNext7Summary] = useState(null);
+  const [sendingSms, setSendingSms] = useState(false);
 
   // Function to fetch data
   const fetchData = async () => {
@@ -669,6 +679,215 @@ const ForecastSimplified = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Analyze all Indian states in COUNTRIES_DATA using the same date range
+  const analyzeAllStates = async () => {
+    setAnalyzingAllStates(true);
+    setError("");
+    setAllStatesSummary(null);
+    try {
+      const india = COUNTRIES_DATA[0];
+      const start = startDate.replace(/-/g, "");
+      const end = endDate.replace(/-/g, "");
+
+      const results = await Promise.all(
+        india.states.map(async (st) => {
+          const city = st.cities[0];
+          try {
+            const res = await postPowerData({
+              lat: city.lat,
+              lon: city.lon,
+              start,
+              end,
+              parameters: PARAMETERS,
+              token: import.meta.env.VITE_TOKEN,
+              timeout: 60,
+            });
+            if (!res.ok || !res.data) {
+              return { state: st.name, city: city.name, error: true };
+            }
+            const processed = processApiData(res.data);
+            const tempsArr = processed.daily
+              .map((d) => d.temp)
+              .filter((v) => v !== null && v !== undefined && !isNaN(v));
+            const precArr = processed.daily
+              .map((d) => d.precip)
+              .filter((v) => v !== null && v !== undefined && !isNaN(v));
+
+            const maxTemp =
+              tempsArr.length > 0 ? Math.max(...tempsArr) : null;
+            const maxDailyPrecip =
+              precArr.length > 0 ? Math.max(...precArr) : null;
+            const totalPrecip =
+              precArr.length > 0
+                ? precArr.reduce((sum, v) => sum + v, 0)
+                : 0;
+
+            return {
+              state: st.name,
+              city: city.name,
+              maxTemp,
+              maxDailyPrecip,
+              totalPrecip,
+              error: false,
+            };
+          } catch {
+            return { state: st.name, city: city.name, error: true };
+          }
+        })
+      );
+
+      const valid = results.filter((r) => !r.error);
+      if (valid.length === 0) {
+        setError("Failed to analyze any state. Please try again.");
+        setAllStatesSummary(null);
+        return;
+      }
+
+      const hottest = valid.reduce((best, cur) => {
+        const bestVal =
+          best.maxTemp !== null && best.maxTemp !== undefined
+            ? best.maxTemp
+            : -Infinity;
+        const curVal =
+          cur.maxTemp !== null && cur.maxTemp !== undefined
+            ? cur.maxTemp
+            : -Infinity;
+        return curVal > bestVal ? cur : best;
+      }, valid[0]);
+
+      const rainiest = valid.reduce((best, cur) => {
+        const bestVal =
+          best.maxDailyPrecip !== null && best.maxDailyPrecip !== undefined
+            ? best.maxDailyPrecip
+            : -Infinity;
+        const curVal =
+          cur.maxDailyPrecip !== null && cur.maxDailyPrecip !== undefined
+            ? cur.maxDailyPrecip
+            : -Infinity;
+        return curVal > bestVal ? cur : best;
+      }, valid[0]);
+
+      setAllStatesSummary({ states: valid, hottest, rainiest });
+
+      const lines = [];
+      lines.push("Alert: High impact weather expected in India.");
+      if (
+        rainiest &&
+        rainiest.state &&
+        rainiest.maxDailyPrecip !== null &&
+        rainiest.maxDailyPrecip !== undefined
+      ) {
+        lines.push(
+          `- Highest daily rainfall: ${rainiest.state} (around ${rainiest.maxDailyPrecip.toFixed(
+            1
+          )} mm, representative city: ${rainiest.city}).`
+        );
+      }
+      if (
+        hottest &&
+        hottest.state &&
+        hottest.maxTemp !== null &&
+        hottest.maxTemp !== undefined
+      ) {
+        lines.push(
+          `- Highest temperature: ${hottest.state} (around ${hottest.maxTemp.toFixed(
+            1
+          )} °C, representative city: ${hottest.city}).`
+        );
+      }
+      lines.push("");
+      lines.push(
+        `Period analyzed (historical NASA POWER data): ${startDate} to ${endDate}.`
+      );
+      lines.push(
+        "Kindly review preparedness and mitigation measures for the above state(s)."
+      );
+
+      setAlertMessage(lines.join("\n"));
+
+      const smsParts = [];
+      smsParts.push("WEATHER ALERT (India):");
+      if (
+        rainiest &&
+        rainiest.state &&
+        rainiest.maxDailyPrecip !== null &&
+        rainiest.maxDailyPrecip !== undefined
+      ) {
+        smsParts.push(
+          `Heavy rain in ${rainiest.state} ~${rainiest.maxDailyPrecip.toFixed(
+            0
+          )}mm`
+        );
+      }
+      if (
+        hottest &&
+        hottest.state &&
+        hottest.maxTemp !== null &&
+        hottest.maxTemp !== undefined
+      ) {
+        smsParts.push(
+          `High temp in ${hottest.state} ~${hottest.maxTemp.toFixed(0)}C`
+        );
+      }
+      smsParts.push(`${startDate} to ${endDate}. Please take action.`);
+      setSmsMessage(smsParts.join(" | "));
+    } finally {
+      setAnalyzingAllStates(false);
+    }
+  };
+
+  // Real-time 7-day forecast for all states + optional SMS using backend
+  const runNext7DaysSmsAlerts = async () => {
+    setSendingSms(true);
+    setError("");
+    setNext7Summary(null);
+    try {
+      const india = COUNTRIES_DATA[0];
+      const statesPayload = india.states.map((st) => ({
+        name: st.name,
+        lat: st.cities[0].lat,
+        lon: st.cities[0].lon,
+      }));
+      const response = await postStateSevenDayForecast({
+        states: statesPayload,
+        phone: smsPhone || null,
+        send_sms: !!smsPhone,
+        hot_threshold_c: 35.0,
+        heavy_rain_threshold_mm: 20.0,
+        openweather_api_key: import.meta.env.VITE_OPENWEATHER_KEY || null,
+      });
+      if (!response.ok) {
+        throw new Error(response.error || "Failed to fetch 7-day state forecast");
+      }
+      setNext7Summary(response.data);
+      // Build a compact SMS template for manual use as well (all alert states)
+      if (response.data && response.data.states) {
+        const alertStates = response.data.states.filter(
+          (s) => s.hot_alert || s.heavy_rain_alert
+        );
+        if (alertStates.length > 0) {
+          const parts = ["7-DAY ALERT (India):"];
+          alertStates.forEach((s) => {
+            const flags = [];
+            if (s.heavy_rain_alert) {
+              flags.push(`heavy rain up to ~${(s.max_daily_precip_mm || 0).toFixed(0)}mm`);
+            }
+            if (s.hot_alert) {
+              flags.push(`heat up to ~${(s.max_temp_c || 0).toFixed(0)}C`);
+            }
+            parts.push(`${s.state}: ${flags.join(" & ")}`);
+          });
+          setSmsMessage(parts.join(" | "));
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Failed to compute next 7 days forecast for all states.");
+    } finally {
+      setSendingSms(false);
     }
   };
 
@@ -1112,6 +1331,25 @@ const ForecastSimplified = () => {
               {loading ? 'Loading...' : 'Get Forecast Data'}
             </button>
           </div>
+          <div className="selector-group">
+            <button
+              className="fetch-button secondary"
+              onClick={analyzeAllStates}
+              disabled={loading || analyzingAllStates}
+            >
+              {analyzingAllStates ? "Analyzing all states..." : "Analyze All States (India)"}
+            </button>
+          </div>
+         
+          <div className="selector-group">
+            <button
+              className="fetch-button secondary"
+              onClick={runNext7DaysSmsAlerts}
+              disabled={sendingSms}
+            >
+              {sendingSms ? "Sending 7-day SMS alerts..." : "Next 7 Days SMS Alerts (All States)"}
+            </button>
+          </div>
         </div>
         
         <div className="fs-loading">{loading && <span>Loading data...</span>}</div>
@@ -1287,6 +1525,299 @@ const ForecastSimplified = () => {
 
       {/* Weather Insights Section */}
       <WeatherInsights forecast={forecastData.daily} />
+
+      {/* Next 7 days real-time forecast + SMS alerts */}
+      {next7Summary && (
+        <section className="state-alerts">
+          <h3>Next 7 Days Alerts (Real-time forecast)</h3>
+          <p className="muted">
+            Based on 7-day forecast (OpenWeather if configured, otherwise NASA POWER climatology). Thresholds: heat ≥ 35°C, heavy rain ≥ 20 mm/day.
+          </p>
+          <div className="state-extremes">
+            <div className="extreme-card">
+              <h4>Heaviest Forecast Rainfall</h4>
+              {next7Summary.rainiest ? (
+                <>
+                  <div className="extreme-main">{next7Summary.rainiest.state}</div>
+                  <div className="extreme-detail">
+                    Max daily rainfall in next 7 days ~{" "}
+                    {next7Summary.rainiest.max_daily_precip_mm !== null &&
+                    next7Summary.rainiest.max_daily_precip_mm !== undefined
+                      ? next7Summary.rainiest.max_daily_precip_mm.toFixed(1)
+                      : "—"}{" "}
+                    mm
+                  </div>
+                </>
+              ) : (
+                <div className="extreme-detail">No strong rainfall signals detected.</div>
+              )}
+            </div>
+            <div className="extreme-card">
+              <h4>Strongest Forecast Heat</h4>
+              {next7Summary.hottest ? (
+                <>
+                  <div className="extreme-main">{next7Summary.hottest.state}</div>
+                  <div className="extreme-detail">
+                    Max temperature in next 7 days ~{" "}
+                    {next7Summary.hottest.max_temp_c !== null &&
+                    next7Summary.hottest.max_temp_c !== undefined
+                      ? next7Summary.hottest.max_temp_c.toFixed(1)
+                      : "—"}{" "}
+                    °C
+                  </div>
+                </>
+              ) : (
+                <div className="extreme-detail">No strong heat signals detected.</div>
+              )}
+            </div>
+          </div>
+          {next7Summary.states && (
+            <div className="state-table-wrapper">
+              <table className="state-table">
+                <thead>
+                  <tr>
+                    <th>State</th>
+                    <th>Max Temp (°C, 7 days)</th>
+                    <th>Max Daily Rain (mm, 7 days)</th>
+                    <th>Total Rain (mm, 7 days)</th>
+                    <th>Alerts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {next7Summary.states.map((s) => (
+                    <tr key={s.state}>
+                      <td>{s.state}</td>
+                      <td>
+                        {s.max_temp_c !== null && s.max_temp_c !== undefined
+                          ? s.max_temp_c.toFixed(1)
+                          : "—"}
+                      </td>
+                      <td>
+                        {s.max_daily_precip_mm !== null &&
+                        s.max_daily_precip_mm !== undefined
+                          ? s.max_daily_precip_mm.toFixed(1)
+                          : "—"}
+                      </td>
+                      <td>
+                        {s.total_precip_mm !== null &&
+                        s.total_precip_mm !== undefined
+                          ? s.total_precip_mm.toFixed(1)
+                          : "—"}
+                      </td>
+                      <td>
+                        {s.hot_alert || s.heavy_rain_alert
+                          ? [
+                              s.heavy_rain_alert ? "Heavy rain" : null,
+                              s.hot_alert ? "Heat" : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" & ")
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* State-wise extremes and alert message */}
+      {allStatesSummary && (
+        <section className="state-alerts">
+          <h3>State-wise Extreme Weather (India)</h3>
+          <p className="muted">
+            Based on NASA POWER daily data for the period {startDate} to {endDate}.
+          </p>
+
+          <div className="state-extremes">
+            <div className="extreme-card">
+              <h4>Highest Rainfall</h4>
+              {allStatesSummary.rainiest &&
+              allStatesSummary.rainiest.maxDailyPrecip !== null &&
+              allStatesSummary.rainiest.maxDailyPrecip !== undefined ? (
+                <>
+                  <div className="extreme-main">
+                    {allStatesSummary.rainiest.state}
+                  </div>
+                  <div className="extreme-detail">
+                    Max daily rainfall ~
+                    {" "}
+                    {allStatesSummary.rainiest.maxDailyPrecip.toFixed(1)}
+                    {" "}
+                    mm
+                    {" "}
+                    ({allStatesSummary.rainiest.city})
+                  </div>
+                </>
+              ) : (
+                <div className="extreme-detail">
+                  Insufficient rainfall data across states.
+                </div>
+              )}
+            </div>
+
+            <div className="extreme-card">
+              <h4>Highest Temperature</h4>
+              {allStatesSummary.hottest &&
+              allStatesSummary.hottest.maxTemp !== null &&
+              allStatesSummary.hottest.maxTemp !== undefined ? (
+                <>
+                  <div className="extreme-main">
+                    {allStatesSummary.hottest.state}
+                  </div>
+                  <div className="extreme-detail">
+                    Max temperature ~
+                    {" "}
+                    {allStatesSummary.hottest.maxTemp.toFixed(1)}
+                    {" "}
+                    °C
+                    {" "}
+                    ({allStatesSummary.hottest.city})
+                  </div>
+                </>
+              ) : (
+                <div className="extreme-detail">
+                  Insufficient temperature data across states.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {allStatesSummary.states && allStatesSummary.states.length > 0 && (
+            <div className="state-table-wrapper">
+              <table className="state-table">
+                <thead>
+                  <tr>
+                    <th>State</th>
+                    <th>Representative City</th>
+                    <th>Max Temp (°C)</th>
+                    <th>Max Daily Rain (mm)</th>
+                    <th>Total Rain (mm)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allStatesSummary.states.map((st) => (
+                    <tr key={st.state}>
+                      <td>{st.state}</td>
+                      <td>{st.city}</td>
+                      <td>
+                        {st.maxTemp !== null &&
+                        st.maxTemp !== undefined &&
+                        !Number.isNaN(st.maxTemp)
+                          ? st.maxTemp.toFixed(1)
+                          : "—"}
+                      </td>
+                      <td>
+                        {st.maxDailyPrecip !== null &&
+                        st.maxDailyPrecip !== undefined &&
+                        !Number.isNaN(st.maxDailyPrecip)
+                          ? st.maxDailyPrecip.toFixed(1)
+                          : "—"}
+                      </td>
+                      <td>
+                        {st.totalPrecip !== null &&
+                        st.totalPrecip !== undefined &&
+                        !Number.isNaN(st.totalPrecip)
+                          ? st.totalPrecip.toFixed(1)
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="alert-box">
+            <h4>Alert Message to State Government</h4>
+            <textarea
+              value={alertMessage}
+              onChange={(e) => setAlertMessage(e.target.value)}
+              rows={6}
+              placeholder="High rainfall / high temperature alert message that will be shared with the state government."
+            />
+            <div className="alert-actions">
+              <button
+                onClick={() => {
+                  if (!alertMessage) return;
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(alertMessage).catch(() => {});
+                  }
+                }}
+                disabled={!alertMessage}
+              >
+                Copy Message
+              </button>
+              <button
+                onClick={() => {
+                  if (!smsMessage) return;
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(smsMessage).catch(() => {});
+                  }
+                }}
+                disabled={!smsMessage}
+              >
+                Copy SMS Text
+              </button>
+              <div className="email-send">
+                <input
+                  type="tel"
+                  placeholder="SMS number (state govt)"
+                  value={alertSmsPhone}
+                  onChange={(e) => setAlertSmsPhone(e.target.value)}
+                />
+                <button
+                  onClick={async () => {
+                    if (!alertSmsPhone || !smsMessage) return;
+                    setSendingSingleSms(true);
+                    try {
+                      const res = await postSendSms({
+                        phone: alertSmsPhone,
+                        body: smsMessage,
+                      });
+                      if (!res.ok) {
+                        console.error(res.error);
+                      }
+                    } finally {
+                      setSendingSingleSms(false);
+                    }
+                  }}
+                  disabled={!alertSmsPhone || !smsMessage || sendingSingleSms}
+                >
+                  {sendingSingleSms ? "Sending SMS..." : "Send SMS"}
+                </button>
+              </div>
+              <div className="email-send">
+                <input
+                  type="email"
+                  placeholder="State government email (optional)"
+                  value={governmentEmail}
+                  onChange={(e) => setGovernmentEmail(e.target.value)}
+                />
+                <button
+                  onClick={() => {
+                    if (!alertMessage || !governmentEmail) return;
+                    const subject = "Weather Alert: High Rainfall / High Temperature";
+                    const body = encodeURIComponent(alertMessage);
+                    const mailto = `mailto:${encodeURIComponent(
+                      governmentEmail
+                    )}?subject=${encodeURIComponent(subject)}&body=${body}`;
+                    window.location.href = mailto;
+                  }}
+                  disabled={!alertMessage || !governmentEmail}
+                >
+                  Send Email
+                </button>
+              </div>
+            </div>
+            <p className="muted small">
+              The alert and SMS text are generated from real NASA POWER data; review and send them through your official communication channels (email, SMS gateway, etc.).
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* Display error message if no data */}
       {forecastData.errorMessage && (

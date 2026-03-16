@@ -65,3 +65,17 @@ export const postCheckDate = async ({ lat, lon, date, window = 7, thresholds = n
     const payload = { lat, lon, date, window, thresholds, token, timeout };
     return await postSafe('/check-date', payload);
 };
+
+// POST /state-7day-forecast
+// payload: { states: [{name,lat,lon}], phone?, send_sms?, hot_threshold_c?, heavy_rain_threshold_mm?, openweather_api_key? }
+export const postStateSevenDayForecast = async ({ states, phone = null, send_sms = false, hot_threshold_c = 38.0, heavy_rain_threshold_mm = 50.0, openweather_api_key = null }) => {
+    const payload = { states, phone, send_sms, hot_threshold_c, heavy_rain_threshold_mm, openweather_api_key };
+    return await postSafe('/state-7day-forecast', payload);
+};
+
+// POST /send-sms
+// payload: { phone: string, body: string }
+export const postSendSms = async ({ phone, body }) => {
+    const payload = { phone, body };
+    return await postSafe('/send-sms', payload);
+};
