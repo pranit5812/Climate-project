@@ -343,10 +343,19 @@ def _twilio_send_sms(to_number, body):
     Reads TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER from environment.
     Returns dict with sent: bool and optional error.
     """
-    sid = os.environ.get("TWILIO_ACCOUNT_SID")
-    token = os.environ.get("TWILIO_AUTH_TOKEN")
-    from_number = os.environ.get("TWILIO_FROM_NUMBER")
-    messaging_service_sid = os.environ.get("TWILIO_MESSAGING_SERVICE_SID")
+    def _clean_env_value(value):
+        if value is None:
+            return None
+        # Trim spaces and accidental wrapping quotes from env values.
+        return str(value).strip().strip('"').strip("'").strip()
+
+    sid = _clean_env_value(os.environ.get("TWILIO_ACCOUNT_SID"))
+    token = _clean_env_value(os.environ.get("TWILIO_AUTH_TOKEN"))
+    from_number = _clean_env_value(os.environ.get("TWILIO_FROM_NUMBER"))
+    messaging_service_sid = _clean_env_value(os.environ.get("TWILIO_MESSAGING_SERVICE_SID"))
+    # Twilio Messaging Service SID pattern: MG + 32 hex chars.
+    if messaging_service_sid and (not messaging_service_sid.startswith("MG") or len(messaging_service_sid) != 34):
+        messaging_service_sid = None
     if not (sid and token and (from_number or messaging_service_sid)):
         return {"sent": False, "error": "Missing Twilio configuration in environment."}
     if not to_number:
