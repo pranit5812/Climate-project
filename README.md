@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 # 🪁 AstroKites - Weather Forecasting & Historical Data Platform
 
 ![AstroKites Logo](./AstroKites/public/astrokites-logo.svg)
@@ -408,3 +409,7 @@ For questions, suggestions, or issues:
 # AgriNova-Proj
 This is project to help the farmars and government bodies.
 >>>>>>> 211d8fecea335b7e5172e91aa3212880020bcac0
+=======
+# Climate-project
+AI powered weather prediction and alerts generator 
+>>>>>>> 7f2e443eb82e64f2d010259907c37c8ec9b2c80c
