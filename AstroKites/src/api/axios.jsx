@@ -60,9 +60,9 @@ export const postForecastSimple = async ({ lat, lon, date, ndays = 7, parameters
 };
 
 // POST /check-date
-// payload: { lat, lon, date: 'YYYY-MM-DD', window?=7, thresholds?={hot_c,cold_c,wind_ms,rain_mm}, token?, timeout? }
-export const postCheckDate = async ({ lat, lon, date, window = 7, thresholds = null, token = null, timeout = 30 }) => {
-    const payload = { lat, lon, date, window, thresholds, token, timeout };
+// payload: { lat, lon, date: 'YYYY-MM-DD', ndays?=30, window?=7, thresholds?={hot_c,cold_c,wind_ms,rain_mm}, token?, timeout? }
+export const postCheckDate = async ({ lat, lon, date, ndays = 30, window = 7, thresholds = null, token = null, timeout = 30 }) => {
+    const payload = { lat, lon, date, ndays, window, thresholds, token, timeout };
     return await postSafe('/check-date', payload);
 };
 

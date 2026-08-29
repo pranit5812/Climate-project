@@ -358,12 +358,13 @@
 .leaflet-popup-content-wrapper {
   background: rgba(255, 255, 255, 0.98);
   border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
   padding: 0;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
   border: 2px solid rgba(102, 126, 234, 0.3);
   min-width: 340px;
-  max-width: 380px;
+  max-width: 680px;
+  width: 90vw;
 }
 
 .leaflet-popup-content {
@@ -371,7 +372,7 @@
   font-size: 14px;
   line-height: 1.6;
   color: #2d3748;
-  max-width: 340px;
+  max-width: 640px;
 }
 
 .leaflet-popup-tip {
@@ -391,6 +392,114 @@
   color: #764ba2 !important;
   background: rgba(102, 126, 234, 0.1);
   border-radius: 8px;
+}
+
+/* 30-Day Outlook Styling */
+.outlook-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.outlook-card {
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.9) 0%, rgba(241, 245, 249, 0.9) 100%);
+  border: 1px solid rgba(102, 126, 234, 0.2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.outlook-card-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.outlook-card-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: #1e293b;
+  margin-bottom: 2px;
+}
+
+.outlook-card-sub {
+  font-size: 11px;
+  color: #475569;
+  font-weight: 500;
+}
+
+.outlook-table-wrapper {
+  max-height: 280px;
+  overflow-y: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(102, 126, 234, 0.2);
+  background: white;
+  margin-top: 12px;
+}
+
+.outlook-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+.outlook-table th {
+  position: sticky;
+  top: 0;
+  background: #f1f5f9;
+  color: #334155;
+  font-weight: 700;
+  padding: 8px 10px;
+  border-bottom: 2px solid #cbd5e1;
+  z-index: 10;
+  white-space: nowrap;
+}
+
+.outlook-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.outlook-table tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.outlook-table tr:hover {
+  background: #eff6ff;
+}
+
+.badge-risk {
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-block;
+  color: white;
+  margin-left: 4px;
+}
+
+.badge-risk-low {
+  background: #10b981;
+}
+
+.badge-risk-med {
+  background: #f59e0b;
+}
+
+.badge-risk-high {
+  background: #ef4444;
 }
 
 /* Global layout fixes */
@@ -424,11 +533,15 @@ html, body, #root {
 
   .leaflet-popup-content-wrapper {
     min-width: 280px;
-    max-width: 320px;
+    max-width: 90vw;
   }
 
   .leaflet-popup-content {
-    max-width: 280px;
+    max-width: 85vw;
+  }
+
+  .outlook-summary-grid {
+    grid-template-columns: 1fr 1fr;
   }
 }
 
@@ -462,11 +575,15 @@ html, body, #root {
 
   .leaflet-popup-content-wrapper {
     min-width: 260px;
-    max-width: 280px;
+    max-width: 92vw;
   }
 
   .leaflet-popup-content {
-    max-width: 260px;
-    margin: 14px 16px;
+    max-width: 88vw;
+    margin: 14px 12px;
+  }
+
+  .outlook-summary-grid {
+    grid-template-columns: 1fr;
   }
 }

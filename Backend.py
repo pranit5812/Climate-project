@@ -307,6 +307,120 @@ def classify_conditions_for_date_from_hist(hist_map, lon, lat, date_obj, window=
     return summary, res
 
 
+def classify_conditions_for_date_range_from_hist(hist_map, lon, lat, start_date, ndays, window=7, thresholds=None):
+    if thresholds is None:
+        thresholds = {'hot_c': 35.0, 'cold_c': 5.0, 'wind_ms': 10.0, 'rain_mm': 5.0, 'heavy_rain_mm': 20.0}
+    
+    td = hist_map.get('T2M', (None, None))
+    pd = hist_map.get('PRECTOT', (None, None))
+    wd = hist_map.get('WS2M', (None, None))
+
+    td_doy = np.array([day_of_year(d) for d in td[0]]) if td[0] is not None else None
+    pd_doy = np.array([day_of_year(d) for d in pd[0]]) if pd[0] is not None else None
+    wd_doy = np.array([day_of_year(d) for d in wd[0]]) if wd[0] is not None else None
+
+    daily_predictions = []
+    
+    for i in range(ndays):
+        target_date = start_date + datetime.timedelta(days=i)
+        qdoy = day_of_year(target_date)
+
+        def get_series_stats(doy_arr, vals_arr, thresh_hot=None, thresh_cold=None, thresh_rain=None, thresh_heavy_rain=None, thresh_wind=None):
+            if doy_arr is None or vals_arr is None or len(vals_arr) == 0:
+                return {'samples': 0, 'mean': None, 'min': None, 'max': None, 'hot_prob': 0, 'cold_prob': 0, 'rain_prob': 0, 'heavy_rain_prob': 0, 'windy_prob': 0}
+            
+            diffs = np.abs(doy_arr - qdoy)
+            diffs = np.minimum(diffs, 365 - diffs)
+            mask = diffs <= window
+            samples = vals_arr[mask]
+            samples = samples[~np.isnan(samples)]
+            n = len(samples)
+            if n == 0:
+                return {'samples': 0, 'mean': None, 'min': None, 'max': None, 'hot_prob': 0, 'cold_prob': 0, 'rain_prob': 0, 'heavy_rain_prob': 0, 'windy_prob': 0}
+            
+            mean_v = float(np.mean(samples))
+            min_v = float(np.min(samples))
+            max_v = float(np.max(samples))
+            
+            hot_prob = round(float(np.sum(samples > thresh_hot) / n * 100)) if thresh_hot is not None else 0
+            cold_prob = round(float(np.sum(samples < thresh_cold) / n * 100)) if thresh_cold is not None else 0
+            rain_prob = round(float(np.sum(samples >= thresh_rain) / n * 100)) if thresh_rain is not None else 0
+            heavy_rain_prob = round(float(np.sum(samples >= thresh_heavy_rain) / n * 100)) if thresh_heavy_rain is not None else 0
+            windy_prob = round(float(np.sum(samples >= thresh_wind) / n * 100)) if thresh_wind is not None else 0
+            
+            return {
+                'samples': n,
+                'mean': round(mean_v, 2),
+                'min': round(min_v, 2),
+                'max': round(max_v, 2),
+                'hot_prob': hot_prob,
+                'cold_prob': cold_prob,
+                'rain_prob': rain_prob,
+                'heavy_rain_prob': heavy_rain_prob,
+                'windy_prob': windy_prob
+            }
+
+        t_stats = get_series_stats(td_doy, td[1], thresh_hot=thresholds.get('hot_c', 35.0), thresh_cold=thresholds.get('cold_c', 5.0))
+        p_stats = get_series_stats(pd_doy, pd[1], thresh_rain=thresholds.get('rain_mm', 5.0), thresh_heavy_rain=thresholds.get('heavy_rain_mm', 20.0))
+        w_stats = get_series_stats(wd_doy, wd[1], thresh_wind=thresholds.get('wind_ms', 10.0))
+
+        sample_counts = [s for s in [t_stats['samples'], p_stats['samples'], w_stats['samples']] if s > 0]
+        avg_samples = np.mean(sample_counts) if sample_counts else 0
+        confidence = round(min(0.95, max(0.40, float(avg_samples) / 150.0)), 2)
+
+        daily_predictions.append({
+            "date": target_date.isoformat(),
+            "temperature_mean": t_stats['mean'],
+            "temperature_min": t_stats['min'],
+            "temperature_max": t_stats['max'],
+            "hot_probability": t_stats['hot_prob'],
+            "cold_probability": t_stats['cold_prob'],
+            "rainfall_mean": p_stats['mean'],
+            "rain_probability": p_stats['rain_prob'],
+            "heavy_rain_probability": p_stats['heavy_rain_prob'],
+            "wind_mean": w_stats['mean'],
+            "windy_probability": w_stats['windy_prob'],
+            "confidence": confidence
+        })
+
+    valid_temps = [d['temperature_mean'] for d in daily_predictions if d['temperature_mean'] is not None]
+    max_temps = [d['temperature_max'] for d in daily_predictions if d['temperature_max'] is not None]
+    min_temps = [d['temperature_min'] for d in daily_predictions if d['temperature_min'] is not None]
+    
+    valid_rains = [d['rainfall_mean'] for d in daily_predictions if d['rainfall_mean'] is not None]
+    valid_rain_probs = [d['rain_probability'] for d in daily_predictions if d['rain_probability'] is not None]
+    valid_heavy_rain_probs = [d['heavy_rain_probability'] for d in daily_predictions if d['heavy_rain_probability'] is not None]
+    
+    valid_winds = [d['wind_mean'] for d in daily_predictions if d['wind_mean'] is not None]
+    valid_wind_probs = [d['windy_probability'] for d in daily_predictions if d['windy_probability'] is not None]
+    valid_confidences = [d['confidence'] for d in daily_predictions if d['confidence'] is not None]
+
+    summary_data = {
+        "temp_avg": round(float(np.mean(valid_temps)), 1) if valid_temps else None,
+        "temp_max": round(float(np.max(max_temps)), 1) if max_temps else None,
+        "temp_min": round(float(np.min(min_temps)), 1) if min_temps else None,
+        "hot_days_count": sum(1 for d in daily_predictions if d['hot_probability'] >= 30),
+        "hot_days_prob": round(float(np.mean([d['hot_probability'] for d in daily_predictions])), 1) if daily_predictions else 0,
+        "cold_days_count": sum(1 for d in daily_predictions if d['cold_probability'] >= 30),
+        "cold_days_prob": round(float(np.mean([d['cold_probability'] for d in daily_predictions])), 1) if daily_predictions else 0,
+        
+        "rain_avg_daily": round(float(np.mean(valid_rains)), 2) if valid_rains else None,
+        "rain_total_expected": round(float(np.sum(valid_rains)), 2) if valid_rains else 0,
+        "rain_days_count": sum(1 for d in daily_predictions if d['rain_probability'] >= 30 or (d['rainfall_mean'] is not None and d['rainfall_mean'] >= 5.0)),
+        "rain_prob_avg": round(float(np.mean(valid_rain_probs)), 1) if valid_rain_probs else 0,
+        "heavy_rain_prob_avg": round(float(np.mean(valid_heavy_rain_probs)), 1) if valid_heavy_rain_probs else 0,
+        
+        "wind_avg": round(float(np.mean(valid_winds)), 2) if valid_winds else None,
+        "wind_max": round(float(np.max(valid_winds)), 2) if valid_winds else None,
+        "windy_prob_avg": round(float(np.mean(valid_wind_probs)), 1) if valid_wind_probs else 0,
+        
+        "overall_confidence": round(float(np.mean(valid_confidences)), 2) if valid_confidences else 0.85
+    }
+
+    return summary_data, daily_predictions
+
+
+
 # ---------------- Utilities for JSON serialization ----------------
 def series_to_json(dates_vals_tuple):
     d, v = dates_vals_tuple
@@ -457,6 +571,8 @@ class CheckDateRequest(BaseModel):
     lat: float
     lon: float
     date: str
+    ndays: Optional[int] = 30
+    days: Optional[int] = None
     window: Optional[int] = 7
     thresholds: Optional[Dict[str, float]] = None
     token: Optional[str] = None
@@ -674,6 +790,11 @@ def check_date(req: CheckDateRequest):
         dt = datetime.datetime.strptime(req.date, "%Y-%m-%d").date()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
+    
+    ndays = req.days or req.ndays or 30
+    if ndays < 1 or ndays > 90:
+        raise HTTPException(status_code=400, detail="Days count must be between 1 and 90")
+
     params = ['T2M','PRECTOT','WS2M']
     start = "20010101"
     end = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y%m%d")
@@ -681,8 +802,24 @@ def check_date(req: CheckDateRequest):
         hist = fetch_power_json_with_fallback_and_key_mapping(req.lat, req.lon, params, start, end, token=req.token, timeout=req.timeout or 30)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch historical data: {e}")
+    
     summary, details = classify_conditions_for_date_from_hist(hist, req.lon, req.lat, dt, window=req.window or 7, thresholds=req.thresholds)
-    return {'summary': summary, 'details': details}
+    range_summary, daily_predictions = classify_conditions_for_date_range_from_hist(hist, req.lon, req.lat, dt, ndays, window=req.window or 7, thresholds=req.thresholds)
+    end_date = (dt + datetime.timedelta(days=ndays - 1)).isoformat()
+    
+    return {
+        'summary': summary,
+        'details': details,
+        'location': {
+            'latitude': req.lat,
+            'longitude': req.lon
+        },
+        'start_date': dt.isoformat(),
+        'days': ndays,
+        'end_date': end_date,
+        'summary_metrics': range_summary,
+        'daily_predictions': daily_predictions
+    }
 
 
 @app.post("/state-7day-forecast")

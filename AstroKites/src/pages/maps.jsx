@@ -68,6 +68,135 @@ const EnglishCountryMap = () => {
     return null;
   };
 
+  // Helper components for SVG charts
+  const TemperatureChart = ({ predictions }) => {
+    if (!predictions || predictions.length === 0) return null;
+    const height = 130;
+    const width = 560;
+    const padding = 30;
+    
+    const temps = predictions.map(p => p.temperature_mean).filter(v => v !== null && !isNaN(v));
+    if (temps.length === 0) return null;
+    const minTemp = Math.floor(Math.min(...temps)) - 2;
+    const maxTemp = Math.ceil(Math.max(...temps)) + 2;
+
+    const points = predictions.map((p, idx) => {
+      const x = padding + (idx / (predictions.length - 1 || 1)) * (width - 2 * padding);
+      const val = p.temperature_mean !== null ? p.temperature_mean : minTemp;
+      const y = height - padding - ((val - minTemp) / (maxTemp - minTemp || 1)) * (height - 2 * padding);
+      return { x, y, temp: p.temperature_mean, date: p.date };
+    });
+
+    const pathD = points.reduce((acc, pt, i) => i === 0 ? `M ${pt.x} ${pt.y}` : `${acc} L ${pt.x} ${pt.y}`, "");
+
+    return (
+      <div style={{ marginTop: '14px', background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+        <div style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '8px' }}>
+          📈 Temperature Trend (°C)
+        </div>
+        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+          <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#cbd5e1" strokeWidth="1" />
+          <path d={pathD} fill="none" stroke="#f59e0b" strokeWidth="2.5" />
+          {points.map((pt, i) => (
+            (i % Math.ceil(predictions.length / 6) === 0 || i === points.length - 1) && (
+              <g key={i}>
+                <circle cx={pt.x} cy={pt.y} r="3.5" fill="#f59e0b" />
+                <text x={pt.x} y={pt.y - 7} fontSize="10" textAnchor="middle" fill="#78350f" fontWeight="600">
+                  {pt.temp !== null ? `${pt.temp.toFixed(1)}°` : ''}
+                </text>
+                <text x={pt.x} y={height - 5} fontSize="9" textAnchor="middle" fill="#64748b">
+                  {pt.date ? pt.date.slice(5) : ''}
+                </text>
+              </g>
+            )
+          ))}
+        </svg>
+      </div>
+    );
+  };
+
+  const RainfallChart = ({ predictions }) => {
+    if (!predictions || predictions.length === 0) return null;
+    const height = 130;
+    const width = 560;
+    const padding = 30;
+    
+    const rains = predictions.map(p => p.rainfall_mean || 0);
+    const maxRain = Math.max(Math.ceil(Math.max(...rains, 5)), 10);
+    const barWidth = Math.max(3, (width - 2 * padding) / predictions.length - 2);
+
+    return (
+      <div style={{ marginTop: '14px', background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+        <div style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '8px' }}>
+          🌧️ Daily Rainfall (mm) & Rain Chance (%)
+        </div>
+        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+          <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#cbd5e1" strokeWidth="1" />
+          {predictions.map((p, idx) => {
+            const x = padding + (idx / (predictions.length - 1 || 1)) * (width - 2 * padding);
+            const barH = ((p.rainfall_mean || 0) / maxRain) * (height - 2 * padding);
+            const y = height - padding - barH;
+            const probY = height - padding - ((p.rain_probability || 0) / 100) * (height - 2 * padding);
+            return (
+              <g key={idx}>
+                <rect x={x - barWidth / 2} y={y} width={barWidth} height={barH} fill="#3b82f6" opacity="0.8" rx="1" />
+                <circle cx={x} cy={probY} r="2.5" fill="#ef4444" />
+                {(idx % Math.ceil(predictions.length / 6) === 0 || idx === predictions.length - 1) && (
+                  <text x={x} y={height - 5} fontSize="9" textAnchor="middle" fill="#64748b">
+                    {p.date ? p.date.slice(5) : ''}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  };
+
+  const WindChart = ({ predictions }) => {
+    if (!predictions || predictions.length === 0) return null;
+    const height = 130;
+    const width = 560;
+    const padding = 30;
+
+    const winds = predictions.map(p => p.wind_mean || 0);
+    const maxWind = Math.max(Math.ceil(Math.max(...winds, 5)), 10);
+
+    const points = predictions.map((p, idx) => {
+      const x = padding + (idx / (predictions.length - 1 || 1)) * (width - 2 * padding);
+      const y = height - padding - ((p.wind_mean || 0) / maxWind) * (height - 2 * padding);
+      return { x, y, wind: p.wind_mean, date: p.date };
+    });
+
+    const pathD = points.reduce((acc, pt, i) => i === 0 ? `M ${pt.x} ${pt.y}` : `${acc} L ${pt.x} ${pt.y}`, "");
+
+    return (
+      <div style={{ marginTop: '14px', background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+        <div style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '8px' }}>
+          💨 Wind Speed Trend (m/s)
+        </div>
+        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+          <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#cbd5e1" strokeWidth="1" />
+          <path d={pathD} fill="none" stroke="#10b981" strokeWidth="2.5" />
+          {points.map((pt, i) => (
+            (i % Math.ceil(predictions.length / 6) === 0 || i === points.length - 1) && (
+              <g key={i}>
+                <circle cx={pt.x} cy={pt.y} r="3" fill="#10b981" />
+                <text x={pt.x} y={pt.y - 6} fontSize="10" textAnchor="middle" fill="#065f46" fontWeight="600">
+                  {pt.wind !== null ? `${pt.wind.toFixed(1)}` : ''}
+                </text>
+                <text x={pt.x} y={height - 5} fontSize="9" textAnchor="middle" fill="#64748b">
+                  {pt.date ? pt.date.slice(5) : ''}
+                </text>
+              </g>
+            )
+          ))}
+        </svg>
+      </div>
+    );
+  };
+
   // ✅ Submit data
   const handleSubmit = async () => {
     if (!selectedFeature || !startDate || !numDays) {
@@ -85,8 +214,8 @@ const EnglishCountryMap = () => {
     }
 
     const days = parseInt(numDays);
-    if (days < 1 || days > 30) {
-      alert("Days must be between 1 and 30");
+    if (days < 1 || days > 90) {
+      alert("Days must be between 1 and 90");
       return;
     }
 
@@ -108,11 +237,11 @@ const EnglishCountryMap = () => {
         lat: formData.location.latitude,
         lon: formData.location.longitude,
         date: startDate,
+        ndays: days,
         window: 7,
       });
       if (resp.ok) {
         setCheckResult(resp.data || null);
-        // ensure popup is visible after data arrives
         try {
           if (markerRef.current && markerRef.current.openPopup) {
             markerRef.current.openPopup();
@@ -127,6 +256,19 @@ const EnglishCountryMap = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const getRiskBadge = (prob) => {
+    if (prob === undefined || prob === null) return <span className="badge-risk" style={{ background: '#94a3b8' }}>N/A</span>;
+    if (prob >= 60) return <span className="badge-risk badge-risk-high">{prob}% (High)</span>;
+    if (prob >= 30) return <span className="badge-risk badge-risk-med">{prob}% (Med)</span>;
+    return <span className="badge-risk badge-risk-low">{prob}% (Low)</span>;
+  };
+
+  const formatDateLabel = (isoDateStr) => {
+    if (!isoDateStr) return '';
+    const d = new Date(isoDateStr);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   return (
@@ -151,53 +293,46 @@ const EnglishCountryMap = () => {
 
           {selectedFeature && (
             <Marker ref={markerRef} position={[selectedFeature.lat, selectedFeature.lng]}>
-              <Popup maxWidth={380}>
+              <Popup maxWidth={680}>
                 <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
                   <div style={{ 
                     fontSize: '18px', 
                     fontWeight: '700', 
                     color: '#667eea',
-                    marginBottom: '12px',
-                    paddingBottom: '10px',
+                    marginBottom: '8px',
+                    paddingBottom: '8px',
                     borderBottom: '2px solid rgba(102, 126, 234, 0.2)'
                   }}>
                     📍 {selectedFeature.name}
                   </div>
                   
                   <div style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: '1fr 1fr', 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
                     gap: '8px', 
                     marginBottom: '12px',
-                    fontSize: '13px',
-                    color: '#4a5568'
-                  }}>
-                    <div><strong>Lat:</strong> {parseFloat(selectedFeature.lat).toFixed(4)}°</div>
-                    <div><strong>Lng:</strong> {parseFloat(selectedFeature.lng).toFixed(4)}°</div>
-                  </div>
-
-                  <div style={{
-                    background: 'rgba(102, 126, 234, 0.1)',
-                    padding: '8px 12px',
-                    borderRadius: '8px',
-                    marginBottom: '12px',
                     fontSize: '12px',
-                    color: '#2d3748'
+                    color: '#475569',
+                    background: '#f8fafc',
+                    padding: '8px 12px',
+                    borderRadius: '8px'
                   }}>
-                    <strong>📅 Start:</strong> {startDate} &nbsp;|&nbsp; <strong>📊 Days:</strong> {numDays}
+                    <div><strong>Coordinates:</strong> {parseFloat(selectedFeature.lat).toFixed(4)}°, {parseFloat(selectedFeature.lng).toFixed(4)}°</div>
+                    <div><strong>Period:</strong> {checkResult?.start_date || startDate} → {checkResult?.end_date || 'N/A'} ({checkResult?.days || numDays} Days)</div>
                   </div>
 
                   {loading && (
                     <div style={{ 
                       marginTop: '12px', 
-                      padding: '12px',
+                      padding: '16px',
                       textAlign: 'center',
                       background: 'rgba(102, 126, 234, 0.1)',
-                      borderRadius: '8px',
+                      borderRadius: '10px',
                       color: '#667eea',
                       fontWeight: '600'
                     }}>
-                      ⏳ Fetching prediction...
+                      ⏳ Calculating {numDays}-Day Weather Outlook...
                     </div>
                   )}
 
@@ -205,116 +340,118 @@ const EnglishCountryMap = () => {
                     <div style={{ marginTop: '12px' }}>
                       <div style={{ 
                         fontWeight: '700', 
-                        fontSize: '15px',
+                        fontSize: '16px',
                         marginBottom: '12px',
-                        color: '#2d3748',
-                        paddingBottom: '8px',
-                        borderBottom: '2px solid rgba(102, 126, 234, 0.2)'
+                        color: '#1e293b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
                       }}>
-                        🌦️ Prediction for {startDate}
+                        <span>🌦️ {checkResult?.days || numDays}-Day Weather Outlook</span>
+                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '500' }}>
+                          Confidence: {Math.round((checkResult.summary_metrics?.overall_confidence || 0.85) * 100)}%
+                        </span>
                       </div>
-                      
-                      {checkResult.details && (() => {
-                        const d = checkResult.details;
-                        const toNum = (x) => (x === undefined || x === null ? null : Number(x));
-                        const pct = (p) => (p === null || isNaN(p) ? 'n/a' : `${Math.round(p * 100)}%`);
-                        const risk = (p) => {
-                          if (p === null || isNaN(p)) return { label: 'Unknown', color: '#999' };
-                          if (p >= 0.6) return { label: 'High', color: '#d9534f' };
-                          if (p >= 0.3) return { label: 'Medium', color: '#f0ad4e' };
-                          return { label: 'Low', color: '#5cb85c' };
-                        };
-                        const hot = toNum(d['Prob_hot_>35.0C']);
-                        const cold = toNum(d['Prob_cold_<5.0C']);
-                        const rain = toNum(d['Prob_rain_>=5.0mm']);
-                        const wind = toNum(d['Prob_wind_>=10.0m/s']);
-                        const tmean = toNum(d['Temp_mean_degC']);
-                        const pmean = toNum(d['Precip_mean_mm']);
-                        const wmean = toNum(d['Wind_mean_mps']);
-                        const kmh = (ms) => (ms == null || isNaN(ms) ? null : (ms * 3.6));
-                        
-                        const tag = (text, color) => (
-                          <span style={{ 
-                            background: color, 
-                            color: '#fff', 
-                            borderRadius: '12px', 
-                            padding: '3px 10px', 
-                            fontSize: '11px', 
-                            fontWeight: '600',
-                            marginLeft: '8px',
-                            display: 'inline-block'
-                          }}>
-                            {text}
-                          </span>
-                        );
-                        
-                        const section = (icon, title, children) => (
-                          <div style={{ 
-                            marginBottom: '16px',
-                            background: 'rgba(102, 126, 234, 0.04)',
-                            padding: '12px',
-                            borderRadius: '10px',
-                            border: '1px solid rgba(102, 126, 234, 0.1)'
-                          }}>
-                            <div style={{ 
-                              fontSize: '13px', 
-                              fontWeight: '700', 
-                              color: '#667eea',
-                              marginBottom: '8px'
-                            }}>
-                              {icon} {title}
-                            </div>
-                            {children}
-                          </div>
-                        );
-                        
-                        const row = (label, value, badge) => (
-                          <div style={{ 
-                            marginBottom: '8px',
-                            fontSize: '13px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between'
-                          }}>
-                            <span style={{ color: '#4a5568' }}>{label}:</span>
-                            <span style={{ fontWeight: '600', color: '#2d3748' }}>
-                              {value} {badge}
-                            </span>
-                          </div>
-                        );
 
-                        return (
-                          <div>
-                            {section('🌡️', 'Temperature', <>
-                              {row('Mean', tmean == null || isNaN(tmean) ? 'n/a' : `${tmean.toFixed(1)}°C`, null)}
-                              {row('Hot chance (>35°C)', pct(hot), tag(risk(hot).label, risk(hot).color))}
-                              {row('Cold chance (<5°C)', pct(cold), tag(risk(cold).label, risk(cold).color))}
-                            </>)}
-                            
-                            {section('💧', 'Rain', <>
-                              {row('Mean', pmean == null || isNaN(pmean) ? 'n/a' : `${pmean.toFixed(2)} mm`, null)}
-                              {row('Rainy chance (≥5mm)', pct(rain), tag(risk(rain).label, risk(rain).color))}
-                            </>)}
-                            
-                            {section('💨', 'Wind', <>
-                              {row('Mean', wmean == null || isNaN(wmean) ? 'n/a' : `${wmean.toFixed(2)} m/s (${kmh(wmean)?.toFixed(1)} km/h)`, null)}
-                              {row('Windy chance (≥10m/s)', pct(wind), tag(risk(wind).label, risk(wind).color))}
-                            </>)}
-                            
-                            <div style={{ 
-                              marginTop: '12px', 
-                              padding: '10px',
-                              background: 'rgba(102, 126, 234, 0.08)',
-                              borderRadius: '8px',
-                              fontSize: '11px',
-                              color: '#666',
-                              lineHeight: '1.5'
-                            }}>
-                              <strong>Units:</strong> Temp in °C (Celsius), Wind in m/s with km/h in brackets, Rain in mm/day.
+                      {/* Summary Cards */}
+                      {checkResult.summary_metrics && (
+                        <div className="outlook-summary-grid">
+                          <div className="outlook-card">
+                            <div className="outlook-card-title">🌡️ Temperature</div>
+                            <div className="outlook-card-value">
+                              {checkResult.summary_metrics.temp_avg !== null ? `${checkResult.summary_metrics.temp_avg}°C` : 'N/A'}
+                            </div>
+                            <div className="outlook-card-sub">
+                              Range: {checkResult.summary_metrics.temp_min}° - {checkResult.summary_metrics.temp_max}°C
                             </div>
                           </div>
-                        );
-                      })()}
+
+                          <div className="outlook-card">
+                            <div className="outlook-card-title">💧 Rainfall</div>
+                            <div className="outlook-card-value">
+                              {checkResult.summary_metrics.rain_avg_daily !== null ? `${checkResult.summary_metrics.rain_avg_daily} mm/d` : 'N/A'}
+                            </div>
+                            <div className="outlook-card-sub">
+                              Total: {checkResult.summary_metrics.rain_total_expected} mm ({checkResult.summary_metrics.rain_days_count} rainy days)
+                            </div>
+                          </div>
+
+                          <div className="outlook-card">
+                            <div className="outlook-card-title">💨 Wind Speed</div>
+                            <div className="outlook-card-value">
+                              {checkResult.summary_metrics.wind_avg !== null ? `${checkResult.summary_metrics.wind_avg} m/s` : 'N/A'}
+                            </div>
+                            <div className="outlook-card-sub">
+                              Max Speed: {checkResult.summary_metrics.wind_max} m/s
+                            </div>
+                          </div>
+
+                          <div className="outlook-card">
+                            <div className="outlook-card-title">🎯 Outlook Score</div>
+                            <div className="outlook-card-value" style={{ color: '#10b981' }}>
+                              {Math.round((checkResult.summary_metrics?.overall_confidence || 0.85) * 100)}%
+                            </div>
+                            <div className="outlook-card-sub">
+                              Climatology Model
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Interactive Charts */}
+                      {checkResult.daily_predictions && (
+                        <div>
+                          <TemperatureChart predictions={checkResult.daily_predictions} />
+                          <RainfallChart predictions={checkResult.daily_predictions} />
+                          <WindChart predictions={checkResult.daily_predictions} />
+
+                          {/* Scrollable Table */}
+                          <div style={{ marginTop: '16px', fontWeight: '700', fontSize: '14px', color: '#1e293b', marginBottom: '6px' }}>
+                            📅 Daily Predictions ({checkResult.daily_predictions.length} Days)
+                          </div>
+                          
+                          <div className="outlook-table-wrapper">
+                            <table className="outlook-table">
+                              <thead>
+                                <tr>
+                                  <th>Date</th>
+                                  <th>Temp (Mean)</th>
+                                  <th>Rain (mm)</th>
+                                  <th>Rain Chance</th>
+                                  <th>Wind (m/s)</th>
+                                  <th>Wind Chance</th>
+                                  <th>Confidence</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {checkResult.daily_predictions.map((day, idx) => (
+                                  <tr key={idx}>
+                                    <td style={{ fontWeight: '600' }}>{formatDateLabel(day.date)}</td>
+                                    <td>
+                                      {day.temperature_mean !== null ? `${day.temperature_mean.toFixed(1)}°C` : 'N/A'}
+                                      <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '4px' }}>
+                                        ({day.temperature_min}° - {day.temperature_max}°)
+                                      </span>
+                                    </td>
+                                    <td>{day.rainfall_mean !== null ? `${day.rainfall_mean.toFixed(2)}` : 'N/A'}</td>
+                                    <td>{getRiskBadge(day.rain_probability)}</td>
+                                    <td>
+                                      {day.wind_mean !== null ? `${day.wind_mean.toFixed(2)}` : 'N/A'}
+                                      <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '4px' }}>
+                                        ({(day.wind_mean * 3.6).toFixed(1)} km/h)
+                                      </span>
+                                    </td>
+                                    <td>{getRiskBadge(day.windy_probability)}</td>
+                                    <td style={{ fontWeight: '600', color: '#059669' }}>
+                                      {Math.round(day.confidence * 100)}%
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
