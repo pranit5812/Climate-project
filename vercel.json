@@ -1,0 +1,11 @@
+{
+  "buildCommand": "cd AstroKites && npm install && npm run build",
+  "outputDirectory": "AstroKites/dist",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
