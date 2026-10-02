@@ -986,6 +986,18 @@ def root():
     return {"message": "NASA POWER backend API (single-file). See /docs for interactive API UI."}
 
 
+# Register all routes with /api prefix for Vercel Serverless compatibility
+for _route in list(app.routes):
+    if hasattr(_route, "endpoint") and hasattr(_route, "methods") and not _route.path.startswith("/api"):
+        app.add_api_route(
+            f"/api{_route.path}",
+            _route.endpoint,
+            methods=_route.methods,
+            response_model=getattr(_route, "response_model", None),
+        )
+
+
+
 if __name__ == "__main__":
     import uvicorn
     host = os.environ.get("HOST", "0.0.0.0")

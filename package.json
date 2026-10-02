@@ -1,0 +1,8 @@
+{
+  "name": "climate-project",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix AstroKites install && npm --prefix AstroKites run build"
+  }
+}

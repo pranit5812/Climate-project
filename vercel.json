@@ -1,8 +1,36 @@
 {
-  "buildCommand": "cd AstroKites && npm install && npm run build",
+  "version": 2,
+  "buildCommand": "npm --prefix AstroKites install && npm --prefix AstroKites run build",
   "outputDirectory": "AstroKites/dist",
-  "framework": "vite",
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/power-data",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/forecast",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/forecast-simple",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/check-date",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/state-7day-forecast",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/send-sms",
+      "destination": "/api/index.py"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
